@@ -25,6 +25,7 @@ if nargin<3, showPlot=0; end
 % read volumes
 wave=au.signal; fs=au.fs;
 frameSize=epdOpt.frameSize; overlap=epdOpt.overlap;
+minSegment=round(epdOpt.minSegment*fs/(frameSize-overlap));
 wave=double(wave);				% convert to double data type (轉成資料型態是 double 的變數)
 wave=wave-mean(wave);				% zero-mean substraction (零點校正)
 frameMat=enframe(wave, frameSize, overlap);	% frame blocking (切出音框)
@@ -38,8 +39,85 @@ volMin=temp(index);
 volMax=temp(frameNum-index+1);
 volumeTh=(volMax-volMin)*epdOpt.volumeRatio+volMin;	% compute volume threshold (計算音量門檻值)
 index=find(volume>=volumeTh);			% find frames with volume larger than the threshold (找出超過音量門檻值的音框)
-epInFrameIndex=[index(1), index(end)];
-epInSampleIndex=frame2sampleIndex(epInFrameIndex, frameSize, overlap);	% conversion from frame index to sample index (由 frame index 轉成 sample index)
+
+% ====== Identify voiced part that's larger than volumeTh
+soundSegment=segmentFind(volume>volumeTh);
+% ====== Compute ZCR
+[minVol, index]=min(volume);
+shiftAmount=epdOpt.zcrShiftGain*max(abs(frameMat(:,index)));		% shiftAmount is equal to epdOpt.zcrShiftGain times the max. abs. sample within the frame of min. volume
+%shiftAmount=max(shiftAmount, 2);
+shiftAmount=max(shiftAmount, max(frameMat(:))/100);
+zcr=frame2zcr(frameMat, 1, shiftAmount);
+zcrTh=max(zcr)*epdOpt.zcrRatio;
+% ====== Expansion 1: Expand end points to volume level1 (lower level)
+for i=1:length(soundSegment),
+	head = soundSegment(i).begin;
+	while (head-1)>=1 & volume(head-1)>=volumeTh,
+		head=head-1;
+	end
+	soundSegment(i).begin = head;
+	tail = soundSegment(i).end;
+	while (tail+1)<=length(volume) & volume(tail+1)>=volumeTh,
+		tail=tail+1;
+	end
+	soundSegment(i).end = tail;
+end
+% ====== Expansion 2: Expand end points to include high zcr region
+for i=1:length(soundSegment),
+	head = soundSegment(i).begin;
+	while (head-1)>=1 & zcr(head-1)>zcrTh			% Extend at beginning
+		head=head-1;
+	end
+	soundSegment(i).begin = head;
+	tail = soundSegment(i).end;
+	while (tail+1)<=length(zcr) & zcr(tail+1)>zcrTh		% Extend at ending
+		tail=tail+1;
+	end
+	soundSegment(i).end = tail;
+end
+% ====== Delete repeated sound segments
+index = [];
+for i=1:length(soundSegment)-1,
+	if soundSegment(i).begin==soundSegment(i+1).begin & soundSegment(i).end==soundSegment(i+1).end,
+		index=[index, i];
+	end
+end
+soundSegment(index) = [];
+% ====== Delete short sound clips
+index = [];
+for i=1:length(soundSegment)
+	soundSegment(i).duration=soundSegment(i).end-soundSegment(i).begin+1;	% This is necessary since the duration is changed due to expansion
+	if soundSegment(i).duration<=minSegment
+		index = [index, i];
+	end
+end
+soundSegment(index) = [];
+zeroOneVec=logical(0*volume);
+for i=1:length(soundSegment)
+	for j=soundSegment(i).begin:soundSegment(i).end
+		zeroOneVec(j)=1;
+	end
+end
+if isempty(soundSegment)
+	epInSampleIndex=[];
+	epInFrameIndex=[];
+	fprintf('Warning: No sound segment found in %s.m.\n', mfilename);
+else
+	epInFrameIndex=[soundSegment(1).begin, soundSegment(end).end];
+	epInSampleIndex=frame2sampleIndex(epInFrameIndex, frameSize, overlap);		% conversion from frame index to sample index
+	for i=1:length(soundSegment),
+		soundSegment(i).beginSample = frame2sampleIndex(soundSegment(i).begin, frameSize, overlap);
+		soundSegment(i).endSample   = min(length(wave), frame2sampleIndex(soundSegment(i).end, frameSize, overlap));
+		soundSegment(i).beginFrame = soundSegment(i).begin;
+		soundSegment(i).endFrame = soundSegment(i).end;
+	end
+	soundSegment=rmfield(soundSegment, 'begin');
+	soundSegment=rmfield(soundSegment, 'end');
+%	soundSegment=rmfield(soundSegment, 'duration');
+end
+
+% epInFrameIndex=[index(1), index(end)];
+% epInSampleIndex=frame2sampleIndex(epInFrameIndex, frameSize, overlap);	% conversion from frame index to sample index (由 frame index 轉成 sample index)
 
 if showPlot,
 	subplot(2,1,1);
@@ -72,3 +150,13 @@ end
 function selfdemo
 mObj=mFileParse(which(mfilename));
 strEval(mObj.example);
+
+function frameMat2 = frameZeroJustify(frameMat, frameSize, polyOrder)
+frameMat2 = frameMat;
+x = 1:frameSize;
+for i = 1:size(frameMat, 2)
+    y = frameMat(:, i)';
+    p = polyfit(x, y, polyOrder);
+    offset = polyval(p, x);
+    frameMat2(:, i) = (y - offset)';
+end

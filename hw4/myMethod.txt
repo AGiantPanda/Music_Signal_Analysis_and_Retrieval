@@ -1,29 +1,13 @@
 Please describe your findings along the following directions.
 
 The recognition rate of my program. (我得到的辨識率)
+The overall recognition rate is 84.52%.
 
 My method (我的方法)
+First do ZeroJustify to the frameMat, then do EPD with optimized vol and ZCR
 
 My optimization strategy (我所採用的優化策略)
 
 Error analysis (錯誤分析)
 
 Potential direction for further improvement (未來可能改進的方向)
-
-Optimized vol:
-The overall recognition rate is 69.05%.
-Time = 0.24744 sec
-Recognition rate for each person:
-921510_Roger: recog. rate=80.56%
-123456_Zhehui: recog. rate=78.47%
-654321_Baiway: recog. rate=67.36%
-921588_Leon: recog. rate=55.56%
-
-Optimized vol with ZeroJustify with 4 order:
-The overall recognition rate is 79.17%.
-Time = 11.7609 sec
-Recognition rate for each person:
-123456_Zhehui: recog. rate=96.53%
-654321_Baiway: recog. rate=84.03%
-921510_Roger: recog. rate=77.78%
-921588_Leon: recog. rate=57.64%
